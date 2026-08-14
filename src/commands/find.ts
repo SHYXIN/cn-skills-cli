@@ -27,7 +27,7 @@ async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
     const url = `${SEARCH_API_BASE}/api/search?q=${encodeURIComponent(query)}&limit=20`;
     const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) return [];
-    const data = await res.json();
+    const data = (await res.json()) as { skills?: SearchSkill[] };
     return (data.skills || []) as SearchSkill[];
   } catch {
     return [];

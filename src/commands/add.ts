@@ -3,7 +3,7 @@ import pc from 'picocolors';
 import { parseSource, resolveShorthand } from '../source-parser.ts';
 import { cloneRepo, cleanupTempDir, GitCloneError } from '../git.ts';
 import { discoverSkills, getSkillDisplayName } from '../skills.ts';
-import { installSkillForAgent, type InstallResult } from '../installer.ts';
+import { installSkillForAgent, sanitizeName, type InstallResult } from '../installer.ts';
 import { detectInstalledAgents, getAgentConfig, agents, getUniversalAgents, getNonUniversalAgents } from '../agents.ts';
 import { loadConfig } from '../config.ts';
 import type { Skill, AgentConfig } from '../types.ts';

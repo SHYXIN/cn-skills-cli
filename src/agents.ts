@@ -63,7 +63,7 @@ export function getNonUniversalAgents(): AgentConfig[] {
 
 /** 检测当前项目中已安装的 agent */
 export async function detectInstalledAgents(): Promise<AgentConfig[]> {
-  const results: AgentConfig[] = await Promise.all(
+  const results = await Promise.all(
     agents.map(async (agent) => ({
       agent,
       installed: await agent.detectInstalled(),
