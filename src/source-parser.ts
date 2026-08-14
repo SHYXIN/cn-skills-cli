@@ -5,7 +5,9 @@ import type { ParsedSource } from './types.ts';
  * Users can also use gitee:owner/repo or github:owner/repo prefixes.
  */
 const SOURCE_ALIASES: Record<string, string> = {
-  // 在这里添加流行的中国 skill 仓库
+  // 流行的中国 skill 仓库：shorthand → 显式 Gitee 源，国内免翻墙
+  'SHYXIN/skills': 'gitee:theshyxin/skills',
+  'mattpocock/skills': 'gitee:theshyxin/matt-skills',
 };
 
 function isLocalPath(input: string): boolean {
