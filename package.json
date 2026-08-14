@@ -1,6 +1,6 @@
 {
   "name": "cn-skills-cli",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "中国优化的 AI Agent Skills 安装工具 - 支持 Gitee/GitHub 双源、镜像加速、中文索引",
   "type": "module",
   "bin": {
