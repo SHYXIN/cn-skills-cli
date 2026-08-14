@@ -4,7 +4,7 @@ import { homedir, tmpdir, platform } from 'os';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
 import type { AgentConfig, Skill } from './types.ts';
 
-function sanitizeName(name: string): string {
+export function sanitizeName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
