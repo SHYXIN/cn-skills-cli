@@ -104,24 +104,28 @@ export async function runAdd(args: string[], options: AddOptions): Promise<void>
       process.exit(0);
     }
   } else if (skills.length > 1 && !options.yes) {
-    const choices = skills.map((s) => ({
-      value: s.name,
-      label: s.name,
-      hint: s.description.slice(0, 60),
-      detail: s.description,
-      group: getSkillCategory(s),
-    }));
-    const selected = await p.multiselect({
+    // 按类别（bucket）分组，使用 clack 的 groupMultiselect 实现 npx skills 风格的分组多选
+    const grouped: Record<string, { value: string; label: string; hint: string; detail: string }[]> = {};
+    for (const s of skills) {
+      const cat = getSkillCategory(s);
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push({
+        value: s.name,
+        label: s.name,
+        hint: s.description.slice(0, 60),
+        detail: s.description,
+      });
+    }
+    const selected = await p.groupMultiselect({
       message: '选择要安装的 skill',
-      options: choices,
+      options: grouped,
       required: false,
-      showDetail: true,
     });
-    if (p.isCancel(selected) || selected.length === 0) {
+    if (p.isCancel(selected) || (selected as string[]).length === 0) {
       await cleanupTempDir(tempDir);
       process.exit(0);
     }
-    selectedSkills = skills.filter((s) => selected.includes(s.name));
+    selectedSkills = skills.filter((s) => (selected as string[]).includes(s.name));
   }
 
   // ── 5. 检测已安装的 agent ──
