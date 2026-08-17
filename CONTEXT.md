@@ -20,6 +20,10 @@ _避免_：shortcut、mapping
 GitHub skill 仓库在 Gitee 上的副本，让国内用户以 HTTPS 从 `gitee.com` 克隆，无需翻墙。由源仓库的 GitHub Actions 镜像工作流保持同步。
 _避免_：backup、fork
 
+**Skill bucket**:
+skill 仓库里按主题归类的子目录，如 `skills/skills/teaching/`、`skills/skills/productivity/`。一个 skill 的「类别」取其父目录名（`getSkillCategory`）。`discoverSkills` 必须递归扫描，否则 bucket 里的 skill 会被漏掉（见 ADR-0002）。
+_避免_：category、group（在 `add` 交互里已用「类别」指代 bucket）
+
 ## Relationships
 
 - 一个 **Agent** 安装多个 **Skill**

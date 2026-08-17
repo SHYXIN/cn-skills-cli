@@ -123,19 +123,27 @@ export async function discoverSkills(
     }
   }
 
-  // 回退：递归搜索
-  if (skills.length === 0) {
-    const allSkillDirs = await findSkillDirs(searchPath);
-    for (const skillDir of allSkillDirs) {
-      const skill = await parseSkillMd(join(skillDir, 'SKILL.md'));
-      if (skill && !seenNames.has(skill.name)) {
-        skills.push(skill);
-        seenNames.add(skill.name);
-      }
+  // 递归搜索兜底：始终运行，补齐标准目录一层扫描遗漏的嵌套 skill（bucket 结构）。
+  // 注意：不能用 `if (skills.length === 0)` 门控——一旦一层扫描命中任意 skill，
+  // 嵌套在 bucket 里的其余 skill 就会被永久漏掉。
+  const allSkillDirs = await findSkillDirs(searchPath);
+  for (const skillDir of allSkillDirs) {
+    const skill = await parseSkillMd(join(skillDir, 'SKILL.md'));
+    if (skill && !seenNames.has(skill.name)) {
+      skills.push(skill);
+      seenNames.add(skill.name);
     }
   }
 
   return skills;
+}
+
+/**
+ * 返回 skill 所属的类别（bucket）——取其父目录名。
+ * 用于安装时的分组展示（如 teaching / productivity / skills）。
+ */
+export function getSkillCategory(skill: Skill): string {
+  return basename(dirname(skill.path));
 }
 
 export function getSkillDisplayName(skill: Skill): string {

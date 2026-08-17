@@ -2,7 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { parseSource, resolveShorthand } from '../source-parser.ts';
 import { cloneRepo, cleanupTempDir, GitCloneError } from '../git.ts';
-import { discoverSkills, getSkillDisplayName } from '../skills.ts';
+import { discoverSkills, getSkillDisplayName, getSkillCategory } from '../skills.ts';
 import { installSkillForAgent, sanitizeName, type InstallResult } from '../installer.ts';
 import { detectInstalledAgents, getAgentConfig, agents, getUniversalAgents, getNonUniversalAgents } from '../agents.ts';
 import { loadConfig } from '../config.ts';
@@ -108,11 +108,14 @@ export async function runAdd(args: string[], options: AddOptions): Promise<void>
       value: s.name,
       label: s.name,
       hint: s.description.slice(0, 60),
+      detail: s.description,
+      group: getSkillCategory(s),
     }));
     const selected = await p.multiselect({
       message: '选择要安装的 skill',
       options: choices,
       required: false,
+      showDetail: true,
     });
     if (p.isCancel(selected) || selected.length === 0) {
       await cleanupTempDir(tempDir);
@@ -263,10 +266,21 @@ export async function runAdd(args: string[], options: AddOptions): Promise<void>
     const modeLabel = installMode === 'symlink' ? 'Symlink' : '复制';
     const agentNames = targetAgents.map((a) => a.displayName).join(', ');
 
+    // 按类别分组展示技能
+    const grouped = new Map<string, string[]>();
+    for (const s of selectedSkills) {
+      const cat = getSkillCategory(s);
+      if (!grouped.has(cat)) grouped.set(cat, []);
+      grouped.get(cat)!.push(s.name);
+    }
+    const skillLines = [...grouped.entries()]
+      .map(([cat, names]) => `  ${pc.dim(cat + ':')} ${pc.cyan(names.join(', '))}`)
+      .join('\n');
+
     console.log('');
     p.log.message(
       pc.bold('安装摘要') + '\n\n' +
-      `  技能：${pc.cyan(selectedSkills.map((s) => s.name).join(', '))}\n` +
+      skillLines + '\n' +
       `  范围：${scopeLabel}\n` +
       `  方式：${modeLabel}\n` +
       `  Agent：${agentNames}`
