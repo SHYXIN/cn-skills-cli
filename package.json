@@ -16,6 +16,7 @@
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "sync-agents": "tsx scripts/sync-agents.ts",
     "prepublishOnly": "npm run build && npm test"
   },
   "engines": {

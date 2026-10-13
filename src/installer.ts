@@ -74,10 +74,18 @@ function getCanonicalSkillsDir(isGlobal: boolean, cwd: string): string {
 }
 
 /**
- * 判断 agent 是否是通用 agent（直接使用 .agents/skills）。
+ * 判断 agent 是否是通用 agent（项目级直接使用 .agents/skills）。
  */
 function isUniversalAgent(agent: AgentConfig): boolean {
-  return agent.showInUniversalList === true || agent.skillsDir === '.agents/skills';
+  return agent.skillsDir === '.agents/skills';
+}
+
+/**
+ * 判断 agent 的全局目录是否就是 canonical 的 ~/.agents/skills。
+ * 是则全局安装无需 symlink（已在正确位置）；否则需要 symlink。
+ */
+function isCanonicalGlobalDir(agent: AgentConfig): boolean {
+  return agent.globalSkillsDir === getCanonicalSkillsDir(true, process.cwd());
 }
 
 /**
@@ -120,8 +128,11 @@ export async function installSkillForAgent(
     throw new Error(`路径遍历检测：${canonicalDir}`);
   }
 
+  // ── forceCopy：无视全局模式，恒用复制 ──
+  const effectiveMode: 'symlink' | 'copy' = agent.forceCopy ? 'copy' : mode;
+
   // ── 复制模式：直接复制到 agent 目录 ──
-  if (mode === 'copy') {
+  if (effectiveMode === 'copy') {
     const agentBase = isGlobal && agent.globalSkillsDir
       ? agent.globalSkillsDir
       : join(workDir, agent.skillsDir);
@@ -144,8 +155,11 @@ export async function installSkillForAgent(
   // 1. 复制到通用目录
   await copyDirectory(skill.path, canonicalDir);
 
-  // 2. 通用 agent 直接返回（已经在正确位置）
-  if (isUniversalAgent(agent)) {
+  // 2. 已在 canonical 位置则直接返回：
+  //    - 项目级：通用 agent 的项目目录就是 .agents/skills
+  //    - 全局级：agent 的全局目录就是 ~/.agents/skills
+  const alreadyCanonical = isGlobal ? isCanonicalGlobalDir(agent) : isUniversalAgent(agent);
+  if (alreadyCanonical) {
     return {
       skillName,
       agentName: agent.name,
@@ -158,14 +172,14 @@ export async function installSkillForAgent(
     };
   }
 
-  // 3. 非通用 agent：创建 symlink
+  // 3. 需要 symlink 的 agent：创建 symlink
   const agentBase = isGlobal && agent.globalSkillsDir
     ? agent.globalSkillsDir
     : join(workDir, agent.skillsDir);
   const agentDir = join(agentBase, skillName);
 
   // 检查 agent 配置目录是否存在（项目级）
-  if (!isGlobal) {
+  if (!isGlobal && !agent.createProjectSkillsDirByDefault) {
     const agentRootDir = join(workDir, agent.skillsDir.split('/')[0]);
     if (!agentRootDir || !await dirExists(agentRootDir)) {
       return {

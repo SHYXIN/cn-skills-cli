@@ -69,8 +69,14 @@ export interface AgentConfig {
   skillsDir: string;
   globalSkillsDir: string | undefined;
   detectInstalled: () => Promise<boolean>;
-  /** 是否在通用列表中显示（锁定在顶部，不可取消选择） */
+  /** 是否属于「通用 agent 集合」（默认 true；false 表示不属于） */
   showInUniversalList?: boolean;
+  /** 是否在交互提示的锁定区显示（默认 true） */
+  showInUniversalPrompt?: boolean;
+  /** 无视全局 symlink/copy 模式，恒用复制 */
+  forceCopy?: boolean;
+  /** 项目级安装时，即使 agent 根目录不存在也默认创建（不跳过 symlink） */
+  createProjectSkillsDirByDefault?: boolean;
 }
 
 export interface ParsedSource {
@@ -91,6 +97,10 @@ export interface CnSkillsConfig {
   installMode: 'symlink' | 'copy';
   preferredAgents: string[];
   indexUrl: string;
+  /** 是否启用 GitHub 代理加速（默认 true） */
+  githubProxy: boolean;
+  /** GitHub 代理清单（可覆盖默认）；空数组表示用内置默认清单 */
+  proxyList: string[];
 }
 
 export const DEFAULT_CONFIG: CnSkillsConfig = {
@@ -102,6 +112,8 @@ export const DEFAULT_CONFIG: CnSkillsConfig = {
   installMode: 'symlink',
   preferredAgents: ['claude-code'],
   indexUrl: 'https://gitee.com/cn-skills/index/raw/main/zh-skills.json',
+  githubProxy: true,
+  proxyList: [],
 };
 
 export interface ZhSkillEntry {

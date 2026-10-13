@@ -45,14 +45,10 @@ export async function runAdd(args: string[], options: AddOptions): Promise<void>
     parsed = await resolveShorthand(parsed, priority);
   }
 
-  const mirrorUrl =
-    parsed.type === 'github' ? config.mirror.github
-    : parsed.type === 'gitee' ? config.mirror.gitee
-    : undefined;
-
   p.log.info(`源：${pc.cyan(parsed.url)} (${parsed.type})`);
-  if (mirrorUrl && mirrorUrl !== parsed.url) {
-    p.log.info(`镜像：${pc.dim(mirrorUrl)}`);
+  const useProxy = parsed.type === 'github' && config.githubProxy;
+  if (useProxy) {
+    p.log.info(pc.dim('GitHub 代理加速：已启用（预探测 + 失败回退）'));
   }
 
   // ── 2. 克隆仓库 ──
@@ -61,7 +57,11 @@ export async function runAdd(args: string[], options: AddOptions): Promise<void>
 
   let tempDir: string;
   try {
-    tempDir = await cloneRepo(parsed.url, parsed.ref, mirrorUrl);
+    tempDir = await cloneRepo(parsed.url, {
+      ref: parsed.ref,
+      proxyEnabled: useProxy,
+      proxyList: config.proxyList,
+    });
     spinner.stop('克隆完成');
   } catch (error) {
     spinner.stop('克隆失败');
@@ -148,8 +148,13 @@ export async function runAdd(args: string[], options: AddOptions): Promise<void>
 
   if (options.agent && options.agent.length > 0) {
     // 用户指定了 agent
-    targetAgents = options.agent
-      .map((name) => getAgentConfig(name))
+    const resolved = options.agent.map((name) => ({ name, config: getAgentConfig(name) }));
+    const unknown = resolved.filter((r) => r.config === undefined).map((r) => r.name);
+    if (unknown.length > 0) {
+      p.log.warn(`未知的 agent（已忽略）：${unknown.join(', ')}`);
+    }
+    targetAgents = resolved
+      .map((r) => r.config)
       .filter((a): a is AgentConfig => a !== undefined);
     if (targetAgents.length === 0) {
       p.log.error('指定的 agent 未找到');
@@ -338,8 +343,9 @@ export async function runAdd(args: string[], options: AddOptions): Promise<void>
       console.log(`\n  ${pc.bold(skill.name)}`);
       console.log(`    ${pc.dim(canonicalPath)}`);
 
-      const universalResults = skillResults.filter((r) => targetAgents.find((a) => a.name === r.agentName)?.showInUniversalList);
-      const symlinkResults = skillResults.filter((r) => r.mode === 'symlink' && !r.skipped && !targetAgents.find((a) => a.name === r.agentName)?.showInUniversalList);
+      // 分类：落在 canonical（.agents/skills）的算 universal；另建 symlink 的算 symlinked；复制的算 copied
+      const universalResults = skillResults.filter((r) => r.path === r.canonicalPath && !r.skipped);
+      const symlinkResults = skillResults.filter((r) => r.mode === 'symlink' && r.path !== r.canonicalPath && !r.skipped);
       const copyResults = skillResults.filter((r) => r.mode === 'copy' && !r.skipped);
       const skippedResults = skillResults.filter((r) => r.skipped);
 

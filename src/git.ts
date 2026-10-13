@@ -1,8 +1,8 @@
 import { join } from 'path';
-import { mkdtemp, rm } from 'fs/promises';
-import { tmpdir } from 'os';
+import { mkdtemp, rm, mkdir, readFile, writeFile } from 'fs/promises';
+import { tmpdir, homedir } from 'os';
 import { spawn } from 'child_process';
-import { CLONE_TIMEOUT_MS } from './constants.ts';
+import { CLONE_TIMEOUT_MS, CONFIG_DIR } from './constants.ts';
 
 export class GitCloneError extends Error {
   readonly url: string;
@@ -19,157 +19,244 @@ export class GitCloneError extends Error {
 }
 
 /**
- * GitHub 镜像代理列表（按优先级排序）。
- * 参考 skills-cn 的方案，使用多个镜像源提高成功率。
+ * 内置 GitHub 代理清单（按优先级排序）。
+ * 均经实测可 `git clone`（见 ADR-0004）。前四个为前缀式，gitclone.com 为路径式。
  */
-const GITHUB_MIRRORS = [
-  'https://gh-proxy.org/https://github.com',   // gh-proxy.org 代理
-  'https://kkgithub.com',                        // kkgithub.com 镜像
-  'https://gitmirror.com/github.com',            // gitmirror 镜像
-  'https://hub.gitmirror.com/github.com',        // gitmirror hub
-  'https://ghproxy.net/https://github.com',     // ghproxy.net
+export const DEFAULT_GITHUB_PROXIES = [
+  'https://gh-proxy.org',
+  'https://ghfast.top',
+  'https://ghproxy.net',
+  'https://gh-proxy.com',
+  'https://gitclone.com',
 ];
 
-/**
- * 检测可用的 GitHub 镜像。
- * 返回第一个可用的镜像 URL，如果都不可用则返回原始 GitHub URL。
- */
-async function detectAvailableMirror(): Promise<string> {
-  for (const mirror of GITHUB_MIRRORS) {
-    try {
-      const res = await fetch(mirror, {
-        method: 'HEAD',
-        signal: AbortSignal.timeout(3000),
-      });
-      if (res.ok || res.status === 302 || res.status === 301) {
-        return mirror;
-      }
-    } catch {
-      // 不可用，尝试下一个
-    }
+const MIRROR_CACHE_FILE = join(CONFIG_DIR, 'mirror-cache.json');
+const MIRROR_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时
+const PROBE_TIMEOUT_MS = 6000;
+
+interface MirrorCache {
+  proxy: string;
+  ts: number;
+}
+
+async function readMirrorCache(): Promise<MirrorCache | undefined> {
+  try {
+    const raw = await readFile(MIRROR_CACHE_FILE, 'utf-8');
+    const parsed = JSON.parse(raw) as MirrorCache;
+    if (typeof parsed.proxy === 'string' && typeof parsed.ts === 'number') return parsed;
+  } catch {
+    // 无缓存或损坏
   }
-  return 'https://github.com'; // fallback 到原始地址
+  return undefined;
+}
+
+async function writeMirrorCache(proxy: string): Promise<void> {
+  try {
+    await mkdir(CONFIG_DIR, { recursive: true });
+    await writeFile(MIRROR_CACHE_FILE, JSON.stringify({ proxy, ts: Date.now() }), 'utf-8');
+  } catch {
+    // 缓存写入失败不影响主流程
+  }
 }
 
 /**
- * 用 child_process.spawn 直接调用 git 克隆。
- * 支持 GitHub 镜像加速，提升中国用户的克隆速度。
+ * 把 GitHub 原始 URL 映射到代理 URL。
+ * - 前缀式：https://github.com/o/r → https://<proxy>/https://github.com/o/r
+ * - gitclone.com：https://github.com/o/r → https://gitclone.com/github.com/o/r
  */
-export async function cloneRepo(
-  url: string,
-  ref?: string,
-  mirrorUrl?: string
-): Promise<string> {
-  // 如果没有指定镜像 URL 且是 GitHub 仓库，自动检测可用镜像
-  let cloneUrl = url;
-  if (!mirrorUrl && url.includes('github.com')) {
-    mirrorUrl = await detectAvailableMirror();
+export function applyProxy(originalUrl: string, proxy: string): string {
+  if (proxy.includes('gitclone.com')) {
+    return originalUrl.replace('https://github.com', `${proxy}/github.com`);
   }
-  if (mirrorUrl) {
-    cloneUrl = applyMirror(url, mirrorUrl);
-  }
+  return `${proxy}/${originalUrl}`;
+}
 
-  const tempDir = await mkdtemp(join(tmpdir(), 'cn-skills-'));
+const GIT_ENV = {
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_LFS_SKIP_SMUDGE: '1',
+  GIT_ASKPASS: 'echo',
+  GCM_INTERACTIVE: 'never',
+};
 
-  const args = ['clone', '--depth', '1', '--no-recurse-submodules'];
-  if (ref) {
-    args.push('--branch', ref);
-  }
-  args.push(cloneUrl, tempDir);
-
-  return new Promise((resolve, reject) => {
-    const child = spawn('git', args, {
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: '0',
-        GIT_LFS_SKIP_SMUDGE: '1',
-        GIT_ASKPASS: 'echo',
-        GCM_INTERACTIVE: 'never',
-      },
-      stdio: ['pipe', 'pipe', 'pipe'],
+/**
+ * 用 `git ls-remote` 轻量探测某 URL 是否可 clone。
+ * 比 HEAD 探测代理根 URL 更能真实反映「能否 clone」。
+ */
+function probeCloneUrl(cloneUrl: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn('git', ['ls-remote', '--exit-code', cloneUrl, 'HEAD'], {
+      env: { ...process.env, ...GIT_ENV },
+      stdio: ['ignore', 'ignore', 'ignore'],
     });
-
-    let stderr = '';
-    child.stderr?.on('data', (data: Buffer) => {
-      stderr += data.toString();
-    });
-
-    const timeout = setTimeout(() => {
+    const timer = setTimeout(() => {
       child.kill('SIGKILL');
-      rm(tempDir, { recursive: true, force: true }).catch(() => {});
-      reject(
-        new GitCloneError(
-          `克隆超时（${Math.round(CLONE_TIMEOUT_MS / 1000)}秒）。\n` +
-            `  - 仓库太大：设置环境变量 CN_SKILLS_CLONE_TIMEOUT_MS=600000\n` +
-            `  - 网络慢：重试，或手动克隆后传本地路径\n` +
-            `  - 私有仓库：确保已配置 SSH 密钥或 HTTPS 凭据`,
-          url,
-          true,
-          false
-        )
-      );
-    }, CLONE_TIMEOUT_MS);
-
-    child.on('close', async (code) => {
-      clearTimeout(timeout);
-      if (code === 0) {
-        resolve(tempDir);
-        return;
-      }
-
-      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
-
-      const isAuthError =
-        stderr.includes('Authentication failed') ||
-        stderr.includes('could not read Username') ||
-        stderr.includes('Permission denied') ||
-        stderr.includes('Repository not found') ||
-        stderr.includes('fatal: repository') ||
-        stderr.includes('Could not resolve host');
-
-      if (isAuthError) {
-        reject(
-          new GitCloneError(
-            `认证失败：${url}\n` +
-              `  - 私有仓库：确保你有访问权限\n` +
-              `  - SSH：检查密钥 ssh -T git@github.com\n` +
-              `  - HTTPS：配置 git 凭据\n` +
-              `  - 网络：检查是否能访问该域名`,
-            url,
-            false,
-            true
-          )
-        );
-        return;
-      }
-
-      reject(new GitCloneError(`克隆失败：${url}\n${stderr || `退出码 ${code}`}`, url, false, false));
+      resolve(false);
+    }, timeoutMs);
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve(code === 0);
     });
-
-    child.on('error', async (err) => {
-      clearTimeout(timeout);
-      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
-      reject(new GitCloneError(`无法执行 git 命令：${err.message}\n请确保已安装 git。`, url, false, false));
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve(false);
     });
   });
 }
 
 /**
- * 应用镜像替换。
- * 例如：https://github.com/owner/repo → https://gh-proxy.org/https://github.com/owner/repo
+ * 按可用性排序代理：命中新鲜缓存则提到最前；否则逐个探测，把第一个可用者提到最前。
+ * 其余代理保持原顺序作为回退候选。
  */
-function applyMirror(originalUrl: string, mirrorUrl: string): string {
-  if (originalUrl.includes('github.com')) {
-    // 处理不同镜像的 URL 格式
-    if (mirrorUrl.includes('gh-proxy.org') || mirrorUrl.includes('ghproxy.net')) {
-      // 代理模式：在 URL 前加代理前缀
-      return originalUrl.replace('https://github.com', mirrorUrl);
-    } else {
-      // 镜像模式：替换域名
-      return originalUrl.replace('https://github.com', mirrorUrl);
+async function orderProxiesByProbe(url: string, proxies: string[]): Promise<string[]> {
+  const ordered = [...proxies];
+
+  const cached = await readMirrorCache();
+  if (cached && Date.now() - cached.ts < MIRROR_CACHE_TTL_MS) {
+    const idx = ordered.indexOf(cached.proxy);
+    if (idx > 0) {
+      ordered.splice(idx, 1);
+      ordered.unshift(cached.proxy);
+    }
+    if (idx >= 0) return ordered;
+  }
+
+  for (const proxy of ordered) {
+    if (await probeCloneUrl(applyProxy(url, proxy))) {
+      ordered.splice(ordered.indexOf(proxy), 1);
+      ordered.unshift(proxy);
+      await writeMirrorCache(proxy);
+      break;
     }
   }
-  return originalUrl;
+  return ordered;
+}
+
+export interface CloneOptions {
+  ref?: string;
+  /** 是否启用 GitHub 代理加速 */
+  proxyEnabled?: boolean;
+  /** 自定义代理清单（空则用内置默认） */
+  proxyList?: string[];
+}
+
+function cloneTimeoutMs(): number {
+  const env = Number(process.env.CN_SKILLS_CLONE_TIMEOUT_MS);
+  return Number.isFinite(env) && env > 0 ? env : CLONE_TIMEOUT_MS;
+}
+
+/** 用 child_process.spawn 直接调用 git 克隆单个 URL。 */
+function doClone(cloneUrl: string, ref: string | undefined): Promise<string> {
+  const tempDirPromise = mkdtemp(join(tmpdir(), 'cn-skills-'));
+
+  return tempDirPromise.then(
+    (tempDir) =>
+      new Promise<string>((resolve, reject) => {
+        const args = ['clone', '--depth', '1', '--no-recurse-submodules'];
+        if (ref) args.push('--branch', ref);
+        args.push(cloneUrl, tempDir);
+
+        const child = spawn('git', args, {
+          env: { ...process.env, ...GIT_ENV },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        let stderr = '';
+        child.stderr?.on('data', (data: Buffer) => {
+          stderr += data.toString();
+        });
+
+        const timeout = setTimeout(() => {
+          child.kill('SIGKILL');
+          rm(tempDir, { recursive: true, force: true }).catch(() => {});
+          reject(
+            new GitCloneError(
+              `克隆超时（${Math.round(cloneTimeoutMs() / 1000)}秒）。\n` +
+                `  - 仓库太大：设置环境变量 CN_SKILLS_CLONE_TIMEOUT_MS=600000\n` +
+                `  - 网络慢：重试，或手动克隆后传本地路径\n` +
+                `  - 私有仓库：确保已配置 SSH 密钥或 HTTPS 凭据`,
+              cloneUrl,
+              true,
+              false
+            )
+          );
+        }, cloneTimeoutMs());
+
+        child.on('close', async (code) => {
+          clearTimeout(timeout);
+          if (code === 0) {
+            resolve(tempDir);
+            return;
+          }
+
+          await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+
+          const isAuthError =
+            stderr.includes('Authentication failed') ||
+            stderr.includes('could not read Username') ||
+            stderr.includes('Permission denied') ||
+            stderr.includes('Repository not found') ||
+            stderr.includes('fatal: repository') ||
+            stderr.includes('Could not resolve host');
+
+          if (isAuthError) {
+            reject(
+              new GitCloneError(
+                `认证失败：${cloneUrl}\n` +
+                  `  - 私有仓库：确保你有访问权限\n` +
+                  `  - SSH：检查密钥 ssh -T git@github.com\n` +
+                  `  - HTTPS：配置 git 凭据\n` +
+                  `  - 网络：检查是否能访问该域名`,
+                cloneUrl,
+                false,
+                true
+              )
+            );
+            return;
+          }
+
+          reject(new GitCloneError(`克隆失败：${cloneUrl}\n${stderr || `退出码 ${code}`}`, cloneUrl, false, false));
+        });
+
+        child.on('error', async (err) => {
+          clearTimeout(timeout);
+          await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+          reject(new GitCloneError(`无法执行 git 命令：${err.message}\n请确保已安装 git。`, cloneUrl, false, false));
+        });
+      })
+  );
+}
+
+/**
+ * 克隆仓库，支持 GitHub 代理加速。
+ *
+ * 流程（github 源且启用代理时）：
+ * 1. `git ls-remote` 预探测，把第一个可用代理提到最前；
+ * 2. 按序尝试各代理 clone，失败则回退下一个；
+ * 3. 最后回退直连 GitHub。
+ * 认证错误立即抛出，不做无谓重试。
+ */
+export async function cloneRepo(url: string, options: CloneOptions = {}): Promise<string> {
+  const { ref, proxyEnabled = false, proxyList = [] } = options;
+  const isGithub = url.includes('github.com');
+
+  const candidates: string[] = [];
+  if (isGithub && proxyEnabled) {
+    const proxies = proxyList.length > 0 ? proxyList : DEFAULT_GITHUB_PROXIES;
+    const ordered = await orderProxiesByProbe(url, proxies);
+    for (const proxy of ordered) candidates.push(applyProxy(url, proxy));
+  }
+  candidates.push(url); // 直连兜底
+
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return await doClone(candidate, ref);
+    } catch (error) {
+      if (error instanceof GitCloneError && error.isAuthError) throw error;
+      lastError = error;
+    }
+  }
+  throw lastError ?? new GitCloneError(`克隆失败：${url}`, url);
 }
 
 /**
