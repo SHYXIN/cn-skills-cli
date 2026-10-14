@@ -2,6 +2,11 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { removeSkill } from '../installer.ts';
 import { detectInstalledAgents, getAgentConfig } from '../agents.ts';
+import { getCnSkillLockPath, type SkillLockFile } from '../skill-lock.ts';
+import { readFileSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+import { sanitizeName } from '../installer.ts';
 
 interface RemoveOptions {
   agent?: string[];
@@ -63,5 +68,21 @@ export async function runRemove(args: string[], options: RemoveOptions): Promise
     p.log.warn(`未找到已安装的 "${skillName}"`);
   } else {
     p.log.success(`\n移除完成！共从 ${removed} 个 agent 移除了 ${skillName}`);
+  }
+
+  // 清理 lock 记录（cn-skills 自己的 lock；上游 npx skills 的 lock 不动，
+  // 避免破坏 npx skills 自己的 update 流程）
+  try {
+    const name = sanitizeName(skillName);
+    const lockPath = getCnSkillLockPath();
+    const raw = readFileSync(lockPath, 'utf-8');
+    const lock = JSON.parse(raw) as SkillLockFile;
+    if (lock.skills && lock.skills[name]) {
+      delete lock.skills[name];
+      writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n');
+      p.log.info(pc.dim(`已清理 lock 记录：${name}`));
+    }
+  } catch {
+    // lock 不存在或损坏，忽略
   }
 }
