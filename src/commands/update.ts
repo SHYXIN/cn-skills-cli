@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import { parseSource } from '../source-parser.ts';
+import { parseSource, resolveShorthand } from '../source-parser.ts';
 import { cloneRepo, cleanupTempDir, GitCloneError } from '../git.ts';
 import { discoverSkills } from '../skills.ts';
 import { installSkillForAgent, sanitizeName } from '../installer.ts';
@@ -18,6 +18,8 @@ interface UpdateOptions {
 interface UpdatePlan {
   name: string;
   source: string;
+  /** lock 里记录的源类型（github/gitee/...），用于还原 shorthand 的完整 URL */
+  sourceType?: string;
   skillFilter?: string;
 }
 
@@ -62,7 +64,7 @@ export async function runUpdate(args: string[], options: UpdateOptions): Promise
     const skillFilter = entry.skillPath
       ? entry.skillPath.replace(/\/SKILL\.md$/, '').split('/').pop()
       : undefined;
-    const plan: UpdatePlan = { name, source, skillFilter };
+    const plan: UpdatePlan = { name, source, sourceType: entry.sourceType, skillFilter };
     const list = bySource.get(source) || [];
     list.push(plan);
     bySource.set(source, list);
@@ -102,7 +104,22 @@ export async function runUpdate(args: string[], options: UpdateOptions): Promise
 
     let tempDir: string;
     try {
-      const parsed = parseSource(source);
+      let parsed = parseSource(source);
+      // shorthand（owner/repo，type=git）需还原完整 URL：
+      // 优先用 lock 里记录的 sourceType，避免 update 时再探测/走错源
+      if (parsed.type === 'git') {
+        const sample = plans[0];
+        const sourceType = sample?.sourceType;
+        if (sourceType === 'gitee' || sourceType === 'github') {
+          parsed = {
+            ...parsed,
+            type: sourceType,
+            url: `https://${sourceType === 'gitee' ? 'gitee.com' : 'github.com'}/${parsed.url}`,
+          };
+        } else {
+          parsed = await resolveShorthand(parsed, config.sourcePriority);
+        }
+      }
       const useProxy = parsed.type === 'github' && config.githubProxy;
       tempDir = await cloneRepo(parsed.url, {
         ref: parsed.ref,
@@ -138,7 +155,9 @@ export async function runUpdate(args: string[], options: UpdateOptions): Promise
         ? skills.find((s) => sanitizeName(s.name) === sanitizeName(plan.skillFilter!))
         : skills.find((s) => sanitizeName(s.name) === sanitizeName(plan.name));
       if (!target) {
+        // 源中已不存在：本地还有 symlink/copy 残留，提示后清理 lock 条目，避免下次再报
         p.log.warn(`⊘ ${pc.bold(plan.name)}：源中未找到（可能已改名/下架），跳过`);
+        p.log.info(pc.dim(`  提示：如需彻底移除，运行 cn-skills remove ${plan.name}`));
         continue;
       }
 
