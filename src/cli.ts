@@ -7,6 +7,7 @@ import { runFind } from './commands/find.ts';
 import { runList } from './commands/list.ts';
 import { runRemove } from './commands/remove.ts';
 import { runUpdate } from './commands/update.ts';
+import { parseCliArgs, parseAgentList } from './args.ts';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 const VERSION = pkg.version;
@@ -64,47 +65,16 @@ function showVersion(): void {
   console.log(`cn-skills v${VERSION}`);
 }
 
-/**
- * 解析命令行参数，分离命令、位置参数和选项。
- */
-function parseArgs(argv: string[]): {
-  command: string;
-  positional: string[];
-  options: Record<string, string | boolean>;
-} {
-  const args = argv.slice(2);
-  const command = args[0] || 'help';
-  const positional: string[] = [];
-  const options: Record<string, string | boolean> = {};
-
-  for (let i = 1; i < args.length; i++) {
-    const arg = args[i];
-    if (arg.startsWith('--')) {
-      const key = arg.slice(2);
-      const next = args[i + 1];
-      if (next && !next.startsWith('--')) {
-        options[key] = next;
-        i++;
-      } else {
-        options[key] = true;
-      }
-    } else {
-      positional.push(arg);
-    }
-  }
-
-  return { command, positional, options };
-}
-
 async function main(): Promise<void> {
-  const { command, positional, options } = parseArgs(process.argv);
+  const { command, positional, options } = parseCliArgs(process.argv);
+  const agentList = parseAgentList(options.agent as string | boolean | string[] | undefined);
 
   try {
     switch (command) {
       case 'add':
       case 'install':
         await runAdd(positional, {
-          agent: options.agent ? String(options.agent).split(',') : undefined,
+          agent: agentList.length > 0 ? agentList : undefined,
           global: options.global as boolean,
           yes: options.yes as boolean,
           source: options.source as 'gitee' | 'github' | undefined,
@@ -134,7 +104,7 @@ async function main(): Promise<void> {
       case 'rm':
       case 'uninstall':
         await runRemove(positional, {
-          agent: options.agent ? String(options.agent).split(',') : undefined,
+          agent: agentList.length > 0 ? agentList : undefined,
           global: options.global as boolean,
           yes: options.yes as boolean,
         });
