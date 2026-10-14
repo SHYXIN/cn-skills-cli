@@ -6,6 +6,7 @@ import { discoverSkills, getSkillDisplayName, getSkillCategory } from '../skills
 import { installSkillForAgent, sanitizeName, type InstallResult } from '../installer.ts';
 import { detectInstalledAgents, getAgentConfig, agents, getUniversalAgents, getNonUniversalAgents } from '../agents.ts';
 import { loadConfig } from '../config.ts';
+import { writeLockEntry } from '../skill-lock.ts';
 import type { Skill, AgentConfig } from '../types.ts';
 
 interface AddOptions {
@@ -364,5 +365,15 @@ export async function runAdd(args: string[], options: AddOptions): Promise<void>
     }
     console.log('');
     p.log.message(pc.dim('提示：使用 skills 前请审查，它们以完整 agent 权限运行。'));
+  }
+
+  // ── 13. 记录 lock（供 cn-skills update 使用） ──
+  if (parsed.type !== 'local') {
+    for (const skill of selectedSkills) {
+      writeLockEntry(sanitizeName(skill.name), {
+        source: sourceInput,
+        sourceType: parsed.type,
+      });
+    }
   }
 }

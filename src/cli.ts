@@ -6,6 +6,7 @@ import { runAdd } from './commands/add.ts';
 import { runFind } from './commands/find.ts';
 import { runList } from './commands/list.ts';
 import { runRemove } from './commands/remove.ts';
+import { runUpdate } from './commands/update.ts';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 const VERSION = pkg.version;
@@ -20,6 +21,7 @@ ${pc.bold('用法：')}
 
 ${pc.bold('命令：')}
   ${pc.cyan('add')} <source>     安装 skill
+  ${pc.cyan('update')} [名称...]  更新已安装的 skills（重新从源拉取覆盖）
   ${pc.cyan('find')} [关键词]    从 skills.sh 搜索 skills（对齐 npx skills find）
   ${pc.cyan('list')}            列出已安装的 skills
   ${pc.cyan('remove')} <name>   移除已安装的 skill
@@ -112,6 +114,15 @@ async function main(): Promise<void> {
 
       case 'find':
         await runFind(positional);
+        break;
+
+      case 'update':
+      case 'upgrade':
+        await runUpdate(positional, {
+          global: options.global as boolean,
+          project: options.project as boolean,
+          yes: options.yes as boolean,
+        });
         break;
 
       case 'list':
