@@ -99,8 +99,23 @@ export function parseSource(input: string): ParsedSource {
     }
   }
 
-  // 先检查别名
+  // 先检查别名（支持别名后追加子路径：deepexi/skills/wangxin → 别名目标 + /wangxin）
   const alias = SOURCE_ALIASES[cleanInput];
+  if (!alias) {
+    for (const [name, target] of Object.entries(SOURCE_ALIASES)) {
+      if (cleanInput.startsWith(`${name}/`)) {
+        const subpath = sanitizeSubpath(cleanInput.slice(name.length + 1));
+        // 解析别名目标本体（自带默认 ref），再叠加子路径；用户显式 ref 优先
+        const resolved = parseSource(target);
+        return {
+          ...resolved,
+          subpath: subpath ?? resolved.subpath,
+          ref: ref || resolved.ref,
+          skillFilter: skillFilter ?? resolved.skillFilter,
+        };
+      }
+    }
+  }
   if (alias) {
     // 别名目标可自带默认 ref（如 #develop）；用户显式指定的 ref 优先
     const aliasHashIdx = alias.indexOf('#');
