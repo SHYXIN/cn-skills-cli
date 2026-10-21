@@ -101,6 +101,8 @@ export interface CnSkillsConfig {
   githubProxy: boolean;
   /** GitHub 代理清单（可覆盖默认）；空数组表示用内置默认清单 */
   proxyList: string[];
+  /** 已知 GitLab 实例 host 列表（默认含 gitlab.com）；配置公司私有 GitLab host 后，其 URL/SSH 形式会被识别为 gitlab 源 */
+  gitlabHosts: string[];
 }
 
 export const DEFAULT_CONFIG: CnSkillsConfig = {
@@ -114,6 +116,7 @@ export const DEFAULT_CONFIG: CnSkillsConfig = {
   indexUrl: 'https://gitee.com/cn-skills/index/raw/main/zh-skills.json',
   githubProxy: true,
   proxyList: [],
+  gitlabHosts: ['gitlab.com'],
 };
 
 export interface ZhSkillEntry {

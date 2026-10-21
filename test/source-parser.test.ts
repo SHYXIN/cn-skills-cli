@@ -124,6 +124,41 @@ describe('parseSource', () => {
       expect(result.type).toBe('gitlab');
       expect(result.url).toBe('https://gitlab.com/group/sub/repo');
     });
+
+    it('应解析公司私有 GitLab host URL', () => {
+      const result = parseSource('https://gitlab.deepexi.com/deepsense/skills');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.deepexi.com/deepsense/skills');
+    });
+
+    it('应解析公司 GitLab URL 的 /-/tree/ 分支和子路径', () => {
+      const result = parseSource('https://gitlab.deepexi.com/deepsense/skills/-/tree/develop/wangxin');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.deepexi.com/deepsense/skills');
+      expect(result.ref).toBe('develop');
+      expect(result.subpath).toBe('wangxin');
+    });
+
+    it('应解析公司 GitLab SSH 形式为 gitlab 源', () => {
+      const result = parseSource('git@gitlab.deepexi.com:deepsense/skills.git');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.deepexi.com/deepsense/skills');
+    });
+
+    it('应解析 deepexi/skills 别名到公司仓库 develop 分支', () => {
+      const result = parseSource('deepexi/skills');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.deepexi.com/deepsense/skills');
+      expect(result.ref).toBe('develop');
+    });
+
+    it('别名应支持叠加 skill 过滤片段', () => {
+      const result = parseSource('deepexi/skills#develop@dp-ask-deepworks');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.deepexi.com/deepsense/skills');
+      expect(result.ref).toBe('develop');
+      expect(result.skillFilter).toBe('dp-ask-deepworks');
+    });
   });
 
   describe('Shorthand', () => {

@@ -8,7 +8,35 @@ const SOURCE_ALIASES: Record<string, string> = {
   // 流行的中国 skill 仓库：shorthand → 显式 Gitee 源，国内免翻墙
   'SHYXIN/skills': 'gitee:theshyxin/skills',
   'mattpocock/skills': 'gitee:theshyxin/matt-skills',
+  // 公司 GitLab skill 仓库：deepexi 同事一键安装（默认 develop 分支）
+  'deepexi/skills': 'https://gitlab.deepexi.com/deepsense/skills#develop',
 };
+
+/**
+ * 已知 GitLab 实例 host。除 gitlab.com 外，可通过配置 `gitlabHosts` 注册公司私有实例
+ * （如 gitlab.deepexi.com），使其 HTTPS/SSH URL 被识别为 gitlab 源并支持 /-/tree/ 子路径。
+ */
+const KNOWN_GITLAB_HOSTS = new Set(['gitlab.com', 'gitlab.deepexi.com']);
+
+/**
+ * 供调用方在加载配置后注册额外的 GitLab host（幂等）。
+ */
+export function registerGitlabHosts(hosts: string[]): void {
+  for (const h of hosts) {
+    const host = h.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    if (host) KNOWN_GITLAB_HOSTS.add(host);
+  }
+}
+
+function isKnownGitlabHost(host: string): boolean {
+  return KNOWN_GITLAB_HOSTS.has(host.toLowerCase());
+}
+
+/** 构造匹配已知 GitLab host 的 URL 正则（支持子组路径 + /-/tree/branch/subpath） */
+function gitlabUrlRegex(): RegExp {
+  const hosts = [...KNOWN_GITLAB_HOSTS].map((h) => h.replace(/\./g, '\\.')).join('|');
+  return new RegExp(`^https?:\\/\\/(?:${hosts})\\/(.+?)\\/([^/]+?)(?:\\/-\\/tree\\/([^/]+)(?:\\/(.+))?)?$`);
+}
 
 function isLocalPath(input: string): boolean {
   return (
@@ -74,7 +102,14 @@ export function parseSource(input: string): ParsedSource {
   // 先检查别名
   const alias = SOURCE_ALIASES[cleanInput];
   if (alias) {
-    return parseSource(alias + (ref ? `#${ref}` : '') + (skillFilter ? `@${skillFilter}` : ''));
+    // 别名目标可自带默认 ref（如 #develop）；用户显式指定的 ref 优先
+    const aliasHashIdx = alias.indexOf('#');
+    const aliasBase = aliasHashIdx !== -1 ? alias.slice(0, aliasHashIdx) : alias;
+    const aliasRef = aliasHashIdx !== -1 ? alias.slice(aliasHashIdx + 1) : undefined;
+    const mergedRef = ref || aliasRef;
+    return parseSource(
+      aliasBase + (mergedRef ? `#${mergedRef}` : '') + (skillFilter ? `@${skillFilter}` : '')
+    );
   }
 
   // 本地路径
@@ -161,14 +196,15 @@ export function parseSource(input: string): ParsedSource {
     };
   }
 
-  // GitLab URL（支持子组）
-  const gitlabUrlMatch = cleanInput.match(/^https?:\/\/gitlab\.com\/(.+?)\/([^/]+?)(?:\/-\/tree\/([^/]+)(?:\/(.+))?)?$/);
+  // GitLab URL（支持子组；host 可含公司私有实例，见 registerGitlabHosts）
+  const gitlabUrlMatch = cleanInput.match(gitlabUrlRegex());
   if (gitlabUrlMatch) {
     const [, group, repo, branch, treePath] = gitlabUrlMatch;
     const subpath = treePath ? sanitizeSubpath(treePath) : undefined;
+    const host = new URL(cleanInput).host;
     return {
       type: 'gitlab',
-      url: `https://gitlab.com/${group}/${repo}`,
+      url: `https://${host}/${group}/${repo}`,
       subpath,
       ref: ref || branch,
       skillFilter,
@@ -182,7 +218,7 @@ export function parseSource(input: string): ParsedSource {
     const url = `https://${host}/${path}`;
     if (host === 'gitee.com') return { type: 'gitee', url, ref, skillFilter };
     if (host === 'github.com') return { type: 'github', url, ref, skillFilter };
-    if (host === 'gitlab.com') return { type: 'gitlab', url, ref, skillFilter };
+    if (isKnownGitlabHost(host)) return { type: 'gitlab', url, ref, skillFilter };
     return { type: 'git', url: cleanInput, ref, skillFilter };
   }
 
@@ -190,7 +226,9 @@ export function parseSource(input: string): ParsedSource {
   if (cleanInput.endsWith('.git')) {
     if (cleanInput.includes('gitee.com')) return { type: 'gitee', url: cleanInput, ref, skillFilter };
     if (cleanInput.includes('github.com')) return { type: 'github', url: cleanInput, ref, skillFilter };
-    if (cleanInput.includes('gitlab.com')) return { type: 'gitlab', url: cleanInput, ref, skillFilter };
+    if ([...KNOWN_GITLAB_HOSTS].some((h) => cleanInput.includes(h))) {
+      return { type: 'gitlab', url: cleanInput, ref, skillFilter };
+    }
     return { type: 'git', url: cleanInput, ref, skillFilter };
   }
 

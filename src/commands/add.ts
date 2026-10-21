@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import { parseSource, resolveShorthand } from '../source-parser.ts';
+import { parseSource, resolveShorthand, registerGitlabHosts } from '../source-parser.ts';
 import { cloneRepo, cleanupTempDir, GitCloneError } from '../git.ts';
 import { discoverSkills, getSkillDisplayName, getSkillCategory } from '../skills.ts';
 import { installSkillForAgent, sanitizeName, type InstallResult } from '../installer.ts';
@@ -38,6 +38,9 @@ export async function runAdd(args: string[], options: AddOptions): Promise<void>
 
   const config = await loadConfig();
   const sourceInput = args[0];
+
+  // 注册配置中的公司 GitLab host，使私有实例 URL 被识别为 gitlab 源
+  registerGitlabHosts(config.gitlabHosts ?? []);
 
   // ── 1. 解析源 ──
   let parsed = parseSource(sourceInput);

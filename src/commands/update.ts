@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import { parseSource, resolveShorthand } from '../source-parser.ts';
+import { parseSource, resolveShorthand, registerGitlabHosts } from '../source-parser.ts';
 import { cloneRepo, cleanupTempDir, GitCloneError } from '../git.ts';
 import { discoverSkills } from '../skills.ts';
 import { installSkillForAgent, sanitizeName } from '../installer.ts';
@@ -87,6 +87,9 @@ export async function runUpdate(args: string[], options: UpdateOptions): Promise
 
   const config = await loadConfig();
   const cwd = process.cwd();
+
+  // 注册配置中的公司 GitLab host，使私有实例 URL 被识别为 gitlab 源
+  registerGitlabHosts(config.gitlabHosts ?? []);
 
   // ── 2. 检测已安装 agent（更新时保持原安装范围：全局） ──
   const installedAgents = await detectInstalledAgents();

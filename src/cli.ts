@@ -77,6 +77,7 @@ async function main(): Promise<void> {
           agent: agentList.length > 0 ? agentList : undefined,
           global: options.global as boolean,
           yes: options.yes as boolean,
+          skill: parseAgentList(options.skill as string | boolean | string[] | undefined),
           source: options.source as 'gitee' | 'github' | undefined,
           copy: options.copy as boolean,
         });
