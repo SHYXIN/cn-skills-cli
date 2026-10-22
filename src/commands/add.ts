@@ -1,7 +1,7 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { parseSource, resolveShorthand, registerGitlabHosts } from '../source-parser.ts';
-import { cloneRepo, cleanupTempDir, GitCloneError } from '../git.ts';
+import { cloneRepo, copyLocalDir, cleanupTempDir, GitCloneError } from '../git.ts';
 import { discoverSkills, getSkillDisplayName, getSkillCategory } from '../skills.ts';
 import { installSkillForAgent, sanitizeName, type InstallResult } from '../installer.ts';
 import { detectInstalledAgents, getAgentConfig, agents, getUniversalAgents, getNonUniversalAgents } from '../agents.ts';
@@ -55,20 +55,25 @@ export async function runAdd(args: string[], options: AddOptions): Promise<void>
     p.log.info(pc.dim('GitHub 代理加速：已启用（预探测 + 失败回退）'));
   }
 
-  // ── 2. 克隆仓库 ──
+  // ── 2. 获取源内容（本地目录复制 / 远端仓库克隆）──
   const spinner = p.spinner();
-  spinner.start('正在克隆仓库...');
+  spinner.start(parsed.type === 'local' ? '正在读取本地目录...' : '正在克隆仓库...');
 
   let tempDir: string;
   try {
-    tempDir = await cloneRepo(parsed.url, {
-      ref: parsed.ref,
-      proxyEnabled: useProxy,
-      proxyList: config.proxyList,
-    });
-    spinner.stop('克隆完成');
+    if (parsed.type === 'local') {
+      // 本地目录可能不含 .git（如 clone 后裁剪的子目录），直接复制即可
+      tempDir = await copyLocalDir(parsed.localPath!);
+    } else {
+      tempDir = await cloneRepo(parsed.url, {
+        ref: parsed.ref,
+        proxyEnabled: useProxy,
+        proxyList: config.proxyList,
+      });
+    }
+    spinner.stop(parsed.type === 'local' ? '读取完成' : '克隆完成');
   } catch (error) {
-    spinner.stop('克隆失败');
+    spinner.stop(parsed.type === 'local' ? '读取本地目录失败' : '克隆失败');
     if (error instanceof GitCloneError) {
       p.log.error(error.message);
     } else {

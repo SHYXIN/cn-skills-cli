@@ -1,5 +1,5 @@
 import { join } from 'path';
-import { mkdtemp, rm, mkdir, readFile, writeFile } from 'fs/promises';
+import { mkdtemp, rm, mkdir, readFile, writeFile, cp, stat } from 'fs/promises';
 import { tmpdir, homedir } from 'os';
 import { spawn } from 'child_process';
 import { CLONE_TIMEOUT_MS, CONFIG_DIR } from './constants.ts';
@@ -269,4 +269,21 @@ export async function cleanupTempDir(dir: string): Promise<void> {
     throw new Error('Attempted to clean up directory outside of temp directory');
   }
   await rm(dir, { recursive: true, force: true });
+}
+
+/**
+ * 把本地目录复制进临时目录，作为 cloneRepo 的本地路径等价物。
+ *
+ * 本地目录可能不是 git 仓库（无 .git），无法走 git clone；
+ * 复制到临时目录后与克隆产物形态一致，后续 skill 扫描流程不变。
+ * 路径不存在或不是目录时抛出 GitCloneError，与 clone 失败同构。
+ */
+export async function copyLocalDir(localPath: string): Promise<string> {
+  const st = await stat(localPath).catch(() => undefined);
+  if (!st?.isDirectory()) {
+    throw new GitCloneError(`本地目录不存在或不是目录：${localPath}`, localPath);
+  }
+  const tempDir = await mkdtemp(join(tmpdir(), 'cn-skills-'));
+  await cp(localPath, tempDir, { recursive: true });
+  return tempDir;
 }
