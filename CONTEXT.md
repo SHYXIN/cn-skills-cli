@@ -40,6 +40,10 @@ _避免_：mirror（与 Gitee mirror 混淆）
 clone 前用 `git ls-remote` 对候选代理做的一次轻量可用性探测，选第一个可用者；clone 失败再逐个回退。结果缓存于 `~/.cn-skills/mirror-cache.json`。
 _避免_：health check、ping
 
+**Sparse fetch（稀疏拉取）**:
+GitHub 源的 partial clone 快车道：`--filter=blob:none --sparse` 克隆后，本地 `git ls-tree` 推导全部 SKILL.md 目录，`sparse-checkout set --cone` 只检出技能目录；候选代理不支持 filter 时回退整仓浅克隆（见 ADR-0005）。`update` 借此天然重新对齐上游 HEAD。
+_避免_：shallow fetch、partial download、mirror（GitHub proxy 同理）
+
 **Skill bucket**:
 skill 仓库里按主题归类的子目录，如 `skills/skills/teaching/`、`skills/skills/productivity/`。一个 skill 的「类别」取其父目录名（`getSkillCategory`）。`discoverSkills` 必须递归扫描，否则 bucket 里的 skill 会被漏掉（见 ADR-0002）。
 _避免_：category、group（在 `add` 交互里已用「类别」指代 bucket）

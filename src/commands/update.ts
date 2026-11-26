@@ -124,10 +124,13 @@ export async function runUpdate(args: string[], options: UpdateOptions): Promise
         }
       }
       const useProxy = parsed.type === 'github' && config.githubProxy;
+      // 稀疏快车道：partial clone 只检出技能目录（不支持时自动回退整仓）。
+      // 不带 subpath——update 的 discoverSkills 是全仓扫描；非 GitHub 源由 cloneRepo 忽略
       tempDir = await cloneRepo(parsed.url, {
         ref: parsed.ref,
         proxyEnabled: useProxy,
         proxyList: config.proxyList,
+        sparse: {},
       });
       spinner.stop(`${source} 拉取完成`);
     } catch (error) {

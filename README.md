@@ -2,7 +2,7 @@
 
 中国优化的 AI Agent Skills 安装工具。
 
-支持 **Gitee/GitHub 双源**、**镜像加速**、**中文技能索引**，兼容 `npx skills` 的目录结构。
+支持 **Gitee/GitHub 双源**、**镜像加速**、**稀疏拉取**、**中文技能索引**，兼容 `npx skills` 的目录结构。
 
 > **npm 包名**：`cn-skills-cli`
 > **命令名**：`cn-skills`
@@ -86,6 +86,10 @@ cn-skills config --init
 - **installMode**：安装模式，`symlink`（符号链接）或 `copy`（复制）
 - **preferredAgents**：默认安装的 agent
 - **indexUrl**：中文技能索引地址
+
+### 稀疏拉取（GitHub 大仓库加速）
+
+GitHub 源安装/更新时自动启用 **partial clone**：只检出技能目录，跳过仓库其余内容。技能目录由本地 `git ls-tree` 推导（不走 API），服务端或代理不支持 `--filter` 时自动回退整仓浅克隆，行为永不劣于旧版。实测巨型仓库收益：211 MiB / 2 分半 → 5.6 MiB / 6 秒（详见 `docs/adr/0005-sparse-fetch-for-github-sources.md`）。
 
 ## 与 npx skills 的关系
 

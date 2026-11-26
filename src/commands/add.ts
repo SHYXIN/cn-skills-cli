@@ -55,6 +55,13 @@ export async function runAdd(args: string[], options: AddOptions): Promise<void>
     p.log.info(pc.dim('GitHub 代理加速：已启用（预探测 + 失败回退）'));
   }
 
+  // ── 1.5 稀疏快车道（partial clone 只检出技能目录）──
+  // 非 GitHub 源由 cloneRepo 忽略该选项；服务端不支持 filter 时自动回退整仓浅克隆
+  const sparse = { subpath: parsed.subpath };
+  if (parsed.type === 'github') {
+    p.log.info(pc.dim('稀疏拉取：partial clone 仅检出技能目录（服务端不支持时自动回退整仓克隆）'));
+  }
+
   // ── 2. 获取源内容（本地目录复制 / 远端仓库克隆）──
   const spinner = p.spinner();
   spinner.start(parsed.type === 'local' ? '正在读取本地目录...' : '正在克隆仓库...');
@@ -69,6 +76,7 @@ export async function runAdd(args: string[], options: AddOptions): Promise<void>
         ref: parsed.ref,
         proxyEnabled: useProxy,
         proxyList: config.proxyList,
+        sparse,
       });
     }
     spinner.stop(parsed.type === 'local' ? '读取完成' : '克隆完成');

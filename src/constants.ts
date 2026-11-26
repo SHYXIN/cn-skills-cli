@@ -10,6 +10,9 @@ export const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 export const CLONE_TIMEOUT_MS = 300_000; // 5 minutes
 
+/** 稀疏尝试的单候选预算：正常 6~72s 即完成，超时早断、快速换候选（整仓克隆仍用 CLONE_TIMEOUT_MS） */
+export const SPARSE_ATTEMPT_TIMEOUT_MS = 120_000;
+
 export const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
 /** Standard skill search directories (same as npx skills) */
